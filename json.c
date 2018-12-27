@@ -177,7 +177,7 @@ static const char *decode_one(const char **p, Janet *out, int depth) {
                 double x = strtod(*p, &end);
                 if (end == *p) goto badnum;
                 *p = end;
-                *out = janet_wrap_real(x);
+                *out = janet_wrap_number(x);
                 break;
             }
         /* false, null, true */
@@ -384,18 +384,10 @@ static const char *encode_one(Encoder *e, Janet x, int depth) {
                     goto overflow;
             }
             break;
-        case JANET_INTEGER:
-            {
-                char cbuf[20];
-                sprintf(cbuf, "%d", janet_unwrap_integer(x));
-                if (janet_buffer_push_cstring(e->buffer, cbuf))
-                    goto overflow;
-            }
-            break;
-        case JANET_REAL:
+        case JANET_NUMBER:
             {
                 char cbuf[25];
-                sprintf(cbuf, "%.17g", janet_unwrap_real(x));
+                sprintf(cbuf, "%.17g", janet_unwrap_number(x));
                 if (janet_buffer_push_cstring(e->buffer, cbuf))
                     goto overflow;
             }
