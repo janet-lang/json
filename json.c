@@ -196,7 +196,7 @@ static const char *decode_one(const char **p, Janet *out, int depth) {
 
                 if (cp[1] != 'u' || cp[2] != 'l' || cp[3] != 'l')
                     goto badident;
-                *out = janet_csymbolv(":null");
+                *out = janet_ckeywordv("null");
                 *p = cp + 4;
                 break;
             }
@@ -394,6 +394,7 @@ static const char *encode_one(Encoder *e, Janet x, int depth) {
             break;
         case JANET_STRING:
         case JANET_SYMBOL:
+        case JANET_KEYWORD:
         case JANET_BUFFER:
             {
                 const uint8_t *bytes;
@@ -517,8 +518,8 @@ static const char *encode_one(Encoder *e, Janet x, int depth) {
                 for (int32_t i = 0; i < capacity; i++) {
                     if (janet_checktype(kvs[i].key, JANET_NIL))
                         continue;
-                    if (!janet_checktype(kvs[i].key, JANET_STRING))
-                        return "only strings keys are allowed in objects";
+                    if (!janet_checktypes(kvs[i].key, JANET_TFLAG_BYTES))
+                        return "object key must be a byte sequence";
                     if ((err = encode_newline(e))) return err;
                     if ((err = encode_one(e, kvs[i].key, depth + 1)))
                         return err;
