@@ -302,39 +302,31 @@ wantstring:
     return "expected json string";
 }
 
-static int json_decode(JanetArgs args) {
-    Janet ret;
-    JANET_FIXARITY(args, 1);
+static Janet json_decode(int32_t argc, Janet *argv) {
+    janet_fixarity(argc, 1);
+    Janet ret = janet_wrap_nil();
     const char *err;
     const char *start;
     const char *p;
-    if (janet_checktype(args.v[0], JANET_BUFFER)) {
-        JanetBuffer *buffer = janet_unwrap_buffer(args.v[0]);
+    if (janet_checktype(argv[0], JANET_BUFFER)) {
+        JanetBuffer *buffer = janet_unwrap_buffer(argv[0]);
         /* Ensure 0 padded */
         janet_buffer_push_u8(buffer, 0);
-        start = p = (const char *)buffer->data;
-        err = decode_one(&p, &ret, 0);
         buffer->count--;
+        start = p = (const char *)buffer->data;
     } else {
-        const uint8_t *bytes;
-        int32_t len;
-        JANET_ARG_BYTES(bytes, len, args, 0);
-        start = p = (const char *)bytes;
-        err = decode_one(&p, &ret, 0);
+        JanetByteView bytes = janet_getbytes(argv, 0);
+        start = p = (const char *)bytes.bytes;
     }
+    err = decode_one(&p, &ret, 0);
     /* Check trailing values */
     if (!err) {
         skipwhite(&p);
-        if (*p)
-            err = "unexpected extra token";
+        if (*p) err = "unexpected extra token";
     }
-    if (err) {
-        JANET_THROWV(args, janet_wrap_string(janet_formatc(
-                    "decode error at postion %d: %s",
-                    p - start,
-                    err)));
-    }
-    JANET_RETURN(args, ret);
+    if (err)
+        janet_panicf("decode error at position %d: %s", p - start, err);
+    return ret;
 }
 
 /*****************/
@@ -350,16 +342,12 @@ typedef struct {
     int32_t newlinelen;
 } Encoder;
 
-static const char *encode_newline(Encoder *e) {
-    if (janet_buffer_push_bytes(e->buffer, e->newline, e->newlinelen))
-        return "buffer overflow";
+static void encode_newline(Encoder *e) {
+    janet_buffer_push_bytes(e->buffer, e->newline, e->newlinelen);
     /* Skip loop if no tab string */
-    if (e->tablen) {
-        for (int32_t i = 0; i < e->indent; i++)
-            if (janet_buffer_push_bytes(e->buffer, e->tab, e->tablen))
-                return "buffer overflow";
-    }
-    return NULL;
+    if (!e->tablen) return;
+    for (int32_t i = 0; i < e->indent; i++)
+        janet_buffer_push_bytes(e->buffer, e->tab, e->tablen);
 }
 
 static const char *encode_one(Encoder *e, Janet x, int depth) {
@@ -367,29 +355,19 @@ static const char *encode_one(Encoder *e, Janet x, int depth) {
         default:
             goto badtype;
         case JANET_NIL:
-            {
-                if (janet_buffer_push_cstring(e->buffer, "null"))
-                    goto overflow;
-            }
+            janet_buffer_push_cstring(e->buffer, "null");
             break;
         case JANET_FALSE:
-            {
-                if (janet_buffer_push_cstring(e->buffer, "false"))
-                    goto overflow;
-            }
+            janet_buffer_push_cstring(e->buffer, "false");
             break;
         case JANET_TRUE:
-            {
-                if (janet_buffer_push_cstring(e->buffer, "true"))
-                    goto overflow;
-            }
+            janet_buffer_push_cstring(e->buffer, "true");
             break;
         case JANET_NUMBER:
             {
                 char cbuf[25];
                 sprintf(cbuf, "%.17g", janet_unwrap_number(x));
-                if (janet_buffer_push_cstring(e->buffer, cbuf))
-                    goto overflow;
+                janet_buffer_push_cstring(e->buffer, cbuf);
             }
             break;
         case JANET_STRING:
@@ -402,7 +380,7 @@ static const char *encode_one(Encoder *e, Janet x, int depth) {
                 const uint8_t *end;
                 int32_t len;
                 janet_bytes_view(x, &bytes, &len);
-                if (janet_buffer_push_u8(e->buffer, '"')) goto overflow;
+                janet_buffer_push_u8(e->buffer, '"');
                 c = bytes;
                 end = bytes + len;
                 while (c < end) {
@@ -414,20 +392,26 @@ static const char *encode_one(Encoder *e, Janet x, int depth) {
                         codepoint = *c++;
                     } else if (*c < 0xE0) {
                         /* two bytes */
-                        if (c + 2 > end) goto overflow;
+                        if (c + 2 > end) goto invalidutf8;
+                        if ((c[1] >> 6) != 2) goto invalidutf8;
                         codepoint = ((c[0] & 0x1F) << 6) |
                             (c[1] & 0x3F);
                         c += 2;
                     } else if (*c < 0xF0) {
                         /* three bytes */
-                        if (c + 3 > end) goto overflow;
+                        if (c + 3 > end) goto invalidutf8;
+                        if ((c[1] >> 6) != 2) goto invalidutf8;
+                        if ((c[2] >> 6) != 2) goto invalidutf8;
                         codepoint = ((c[0] & 0x0F) << 12) |
                             ((c[1] & 0x3F) << 6) |
                             (c[2] & 0x3F);
                         c += 3;
                     } else if (*c < 0xF8) {
                         /* four bytes */
-                        if (c + 4 > end) goto overflow;
+                        if (c + 4 > end) goto invalidutf8;
+                        if ((c[1] >> 6) != 2) goto invalidutf8;
+                        if ((c[2] >> 6) != 2) goto invalidutf8;
+                        if ((c[3] >> 6) != 2) goto invalidutf8;
                         codepoint = ((c[0] & 0x07) << 18) |
                             ((c[1] & 0x3F) << 12) |
                             ((c[3] & 0x3F) << 6) |
@@ -442,10 +426,8 @@ static const char *encode_one(Encoder *e, Janet x, int depth) {
                     if (codepoint > 0x1F && codepoint < 0x80) {
                         /* Normal, no escape */
                         if (codepoint == '\\' || codepoint == '"')
-                            if (janet_buffer_push_u8(e->buffer, '\\'))
-                                goto overflow;
-                        if (janet_buffer_push_u8(e->buffer, (uint8_t) codepoint))
-                            goto overflow;
+                            janet_buffer_push_u8(e->buffer, '\\');
+                        janet_buffer_push_u8(e->buffer, (uint8_t) codepoint);
                     } else if (codepoint < 0x10000) {
                         /* One unicode escape */
                         uint8_t buf[6];
@@ -455,8 +437,7 @@ static const char *encode_one(Encoder *e, Janet x, int depth) {
                         buf[3] = (codepoint >> 8) & 0xF;
                         buf[4] = (codepoint >> 4) & 0xF;
                         buf[5] = codepoint & 0xF;
-                        if (janet_buffer_push_bytes(e->buffer, buf, sizeof(buf)))
-                            goto overflow;
+                        janet_buffer_push_bytes(e->buffer, buf, sizeof(buf));
                     } else {
                         /* Two unicode escapes (surrogate pair) */
                         uint32_t hi, lo;
@@ -475,11 +456,10 @@ static const char *encode_one(Encoder *e, Janet x, int depth) {
                         buf[9] = (lo >> 8) & 0xF;
                         buf[10] = (lo >> 4) & 0xF;
                         buf[11] = lo & 0xF;
-                        if (janet_buffer_push_bytes(e->buffer, buf, sizeof(buf)))
-                            goto overflow;
+                        janet_buffer_push_bytes(e->buffer, buf, sizeof(buf));
                     }
                 }
-                if (janet_buffer_push_u8(e->buffer, '"')) goto overflow;
+                janet_buffer_push_u8(e->buffer, '"');
             }
             break;
         case JANET_TUPLE:
@@ -489,21 +469,19 @@ static const char *encode_one(Encoder *e, Janet x, int depth) {
                 const Janet *items;
                 int32_t len;
                 janet_indexed_view(x, &items, &len);
-                if (janet_buffer_push_u8(e->buffer, '[')) goto overflow;
+                janet_buffer_push_u8(e->buffer, '[');
                 e->indent++;
                 for (int32_t i = 0; i < len; i++) {
-                    if ((err = encode_newline(e))) return err;
-                    if ((err = encode_one(e, items[i], depth + 1)))
-                        return err;
-                    if (janet_buffer_push_u8(e->buffer, ','))
-                        goto overflow;
+                    encode_newline(e);
+                    if ((err = encode_one(e, items[i], depth + 1))) return err;
+                    janet_buffer_push_u8(e->buffer, ',');
                 }
                 e->indent--;
                 if (e->buffer->data[e->buffer->count - 1] == ',') {
                     e->buffer->count--;
-                    if ((err = encode_newline(e))) return err;
+                    encode_newline(e);
                 }
-                if (janet_buffer_push_u8(e->buffer, ']')) goto overflow;
+                janet_buffer_push_u8(e->buffer, ']');
             }
             break;
         case JANET_TABLE:
@@ -513,47 +491,43 @@ static const char *encode_one(Encoder *e, Janet x, int depth) {
                 const JanetKV *kvs;
                 int32_t count, capacity;
                 janet_dictionary_view(x, &kvs, &count, &capacity);
-                if (janet_buffer_push_u8(e->buffer, '{')) goto overflow;
+                janet_buffer_push_u8(e->buffer, '{');
                 e->indent++;
                 for (int32_t i = 0; i < capacity; i++) {
                     if (janet_checktype(kvs[i].key, JANET_NIL))
                         continue;
                     if (!janet_checktypes(kvs[i].key, JANET_TFLAG_BYTES))
                         return "object key must be a byte sequence";
-                    if ((err = encode_newline(e))) return err;
+                    encode_newline(e);
                     if ((err = encode_one(e, kvs[i].key, depth + 1)))
                         return err;
                     const char *sep = e->tablen ? ": " : ":";
-                    if (janet_buffer_push_cstring(e->buffer, sep))
-                        goto overflow;
+                    janet_buffer_push_cstring(e->buffer, sep);
                     if ((err = encode_one(e, kvs[i].value, depth + 1)))
                         return err;
-                    if (janet_buffer_push_u8(e->buffer, ','))
-                        goto overflow;
+                    janet_buffer_push_u8(e->buffer, ',');
                 }
                 e->indent--;
                 if (e->buffer->data[e->buffer->count - 1] == ',') {
                     e->buffer->count--;
-                    if ((err = encode_newline(e))) return err;
+                    encode_newline(e);
                 }
-                if (janet_buffer_push_u8(e->buffer, '}')) goto overflow;
+                janet_buffer_push_u8(e->buffer, '}');
             }
             break;
     }
     return NULL;
 
     /* Errors */
-overflow:
-    return "buffer overflow";
+
 badtype:
     return "type not supported";
 invalidutf8:
     return "string contains invalid utf-8";
 }
 
-static int json_encode(JanetArgs args) {
-    JANET_MINARITY(args, 1);
-    JANET_MAXARITY(args, 3);
+static Janet json_encode(int32_t argc, Janet *argv) {
+    janet_arity(argc, 1, 3);
     Encoder e;
     e.indent = 0;
     e.buffer = janet_buffer(10);
@@ -561,18 +535,22 @@ static int json_encode(JanetArgs args) {
     e.newline = NULL;
     e.tablen = 0;
     e.newlinelen = 0;
-    if (args.n >= 2) {
-        JANET_ARG_BYTES(e.tab, e.tablen, args, 1);
-        if (args.n >= 3) {
-            JANET_ARG_BYTES(e.newline, e.newlinelen, args, 2);
+    if (argc >= 2) {
+        JanetByteView tab = janet_getbytes(argv, 1);
+        e.tab = tab.bytes;
+        e.tablen = tab.len;
+        if (argc >= 3) {
+            JanetByteView newline = janet_getbytes(argv, 2);
+            e.newline = newline.bytes;
+            e.newlinelen = newline.len;
         } else {
             e.newline = (const uint8_t *)"\r\n";
             e.newlinelen = 2;
         }
     }
-    const char *err = encode_one(&e, args.v[0], 0);
-    if (err) JANET_THROW(args, err);
-    JANET_RETURN_BUFFER(args, e.buffer);
+    const char *err = encode_one(&e, argv[0], 0);
+    if (err) janet_panicf("encode error: %s", err);
+    return janet_wrap_buffer(e.buffer);
 }
 
 /****************/
@@ -591,8 +569,6 @@ static const JanetReg cfuns[] = {
     {NULL, NULL, NULL}
 };
 
-JANET_MODULE_ENTRY(JanetArgs args) {
-    JanetTable *env = janet_env(args);
+JANET_MODULE_ENTRY(JanetTable *env) {
     janet_cfuns(env, "json", cfuns);
-    return 0;
 }
