@@ -56,6 +56,10 @@ static int hexdig(char dig) {
     return -1;
 }
 
+/* Convert integer to hex character */
+static const char hex_digits[] = "0123456789ABCDEF";
+#define tohex(x) (hex_digits[x])
+
 /* Read the hex value for a unicode escape */
 static const char *decode_utf16_escape(const char *p, uint32_t *outpoint) {
     if (!p[0] || !p[1] || !p[2] || !p[3])
@@ -433,10 +437,10 @@ static const char *encode_one(Encoder *e, Janet x, int depth) {
                         uint8_t buf[6];
                         buf[0] = '\\';
                         buf[1] = 'u';
-                        buf[2] = (codepoint >> 12) & 0xF;
-                        buf[3] = (codepoint >> 8) & 0xF;
-                        buf[4] = (codepoint >> 4) & 0xF;
-                        buf[5] = codepoint & 0xF;
+                        buf[2] = tohex((codepoint >> 12) & 0xF);
+                        buf[3] = tohex((codepoint >> 8) & 0xF);
+                        buf[4] = tohex((codepoint >> 4) & 0xF);
+                        buf[5] = tohex(codepoint & 0xF);
                         janet_buffer_push_bytes(e->buffer, buf, sizeof(buf));
                     } else {
                         /* Two unicode escapes (surrogate pair) */
@@ -446,16 +450,16 @@ static const char *encode_one(Encoder *e, Janet x, int depth) {
                         lo = ((codepoint - 0x10000) & 0x3FF) + 0xDC00;
                         buf[0] = '\\';
                         buf[1] = 'u';
-                        buf[2] = (hi >> 12) & 0xF;
-                        buf[3] = (hi >> 8) & 0xF;
-                        buf[4] = (hi >> 4) & 0xF;
-                        buf[5] = hi & 0xF;
+                        buf[2] = tohex((hi >> 12) & 0xF);
+                        buf[3] = tohex((hi >> 8) & 0xF);
+                        buf[4] = tohex((hi >> 4) & 0xF);
+                        buf[5] = tohex(hi & 0xF);
                         buf[6] = '\\';
                         buf[7] = 'u';
-                        buf[8] = (lo >> 12) & 0xF;
-                        buf[9] = (lo >> 8) & 0xF;
-                        buf[10] = (lo >> 4) & 0xF;
-                        buf[11] = lo & 0xF;
+                        buf[8] = tohex((lo >> 12) & 0xF);
+                        buf[9] = tohex((lo >> 8) & 0xF);
+                        buf[10] = tohex((lo >> 4) & 0xF);
+                        buf[11] = tohex(lo & 0xF);
                         janet_buffer_push_bytes(e->buffer, buf, sizeof(buf));
                     }
                 }
