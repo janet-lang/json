@@ -24,6 +24,14 @@ janet build.janet
 
 To build the library.
 
+## Testing
+
+Use the `test.janet` script to run tests for janet.
+
+```
+janet test
+```
+
 ## License
 
 This module is licensed under the MIT/X11 License.
