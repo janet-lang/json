@@ -361,11 +361,9 @@ static const char *encode_one(Encoder *e, Janet x, int depth) {
         case JANET_NIL:
             janet_buffer_push_cstring(e->buffer, "null");
             break;
-        case JANET_FALSE:
-            janet_buffer_push_cstring(e->buffer, "false");
-            break;
-        case JANET_TRUE:
-            janet_buffer_push_cstring(e->buffer, "true");
+        case JANET_BOOLEAN:
+            janet_buffer_push_cstring(e->buffer,
+                    janet_unwrap_boolean(x) ? "true" : "false");
             break;
         case JANET_NUMBER:
             {
