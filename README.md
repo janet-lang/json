@@ -15,21 +15,19 @@ Json values are translated as follows:
 
 ## Building
 
-To build the native module, use the build.janet script, which requires having janet installed.
+To build the native module, use the `jpm tool`, which requires having janet installed.
 Run
 
 ```
-janet build.janet
+jpm build
 ```
 
 To build the library.
 
 ## Testing
 
-Use the `test.janet` script to run tests for janet.
-
 ```
-janet test
+jpm test
 ```
 
 ## License
