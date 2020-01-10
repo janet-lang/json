@@ -218,7 +218,7 @@ static const char *decode_one(const char **p, Janet *out, int depth) {
             {
                 const char *cp = *p + 1;
                 const char *start = cp;
-                while (*cp >= 32 && *cp != '"' && *cp != '\\')
+                while ((*cp >= 32 || *cp < 0) && *cp != '"' && *cp != '\\')
                     cp++;
                 /* Only use a buffer for strings with escapes, else just copy
                  * memory from source */
