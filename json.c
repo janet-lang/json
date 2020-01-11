@@ -529,10 +529,10 @@ invalidutf8:
 }
 
 static Janet json_encode(int32_t argc, Janet *argv) {
-    janet_arity(argc, 1, 3);
+    janet_arity(argc, 1, 4);
     Encoder e;
     e.indent = 0;
-    e.buffer = janet_buffer(10);
+    e.buffer = janet_optbuffer(argv, argc, 3, 10);
     e.tab = NULL;
     e.newline = NULL;
     e.tablen = 0;
@@ -561,7 +561,7 @@ static Janet json_encode(int32_t argc, Janet *argv) {
 
 static const JanetReg cfuns[] = {
     {"encode", json_encode,
-        "(json/encode x [,tab [,newline]])\n\n"
+        "(json/encode x &opt tab newline buf)\n\n"
         "Encodes a janet value in JSON (utf-8)."
     },
     {"decode", json_decode,
