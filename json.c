@@ -28,6 +28,9 @@
 /* JSON Decoding */
 /*****************/
 
+#define JSON_KEYWORD_KEY 0x10000
+#define JSON_NULL_TO_NIL 0x20000
+
 /* Check if a character is whitespace */
 static int white(uint8_t c) {
     return c == '\t' || c == '\n' || c == ' ' || c == '\r';
@@ -161,7 +164,7 @@ static const char *decode_string(const char **p, Janet *out) {
 static const char *decode_one(const char **p, Janet *out, int depth) {
 
     /* Prevent stack overflow */
-    if (depth > JANET_RECURSION_GUARD) goto recurdepth;
+    if ((depth & 0xFFFF) > JANET_RECURSION_GUARD) goto recurdepth;
 
     /* Skip leading whitepspace */
     skipwhite(p);
@@ -200,7 +203,11 @@ static const char *decode_one(const char **p, Janet *out, int depth) {
 
                 if (cp[1] != 'u' || cp[2] != 'l' || cp[3] != 'l')
                     goto badident;
-                *out = janet_ckeywordv("null");
+                if (depth & JSON_NULL_TO_NIL) {
+                    *out = janet_wrap_nil();
+                } else {
+                    *out = janet_ckeywordv("null");
+                }
                 *p = cp + 4;
                 break;
             }
@@ -272,6 +279,10 @@ static const char *decode_one(const char **p, Janet *out, int depth) {
                     *p = *p + 1;
                     err = decode_one(p, &subval, depth + 1);
                     if (err) return err;
+                    if (depth & JSON_KEYWORD_KEY) {
+                        JanetString str = janet_unwrap_string(subkey);
+                        subkey = janet_keywordv(str, janet_string_length(str));
+                    }
                     janet_table_put(table, subkey, subval);
                     skipwhite(p);
                     if (**p == '}') break;
@@ -307,7 +318,7 @@ wantstring:
 }
 
 static Janet json_decode(int32_t argc, Janet *argv) {
-    janet_fixarity(argc, 1);
+    janet_arity(argc, 1, 3);
     Janet ret = janet_wrap_nil();
     const char *err;
     const char *start;
@@ -322,7 +333,10 @@ static Janet json_decode(int32_t argc, Janet *argv) {
         JanetByteView bytes = janet_getbytes(argv, 0);
         start = p = (const char *)bytes.bytes;
     }
-    err = decode_one(&p, &ret, 0);
+    int flags = 0;
+    if (argc > 1 && janet_truthy(argv[1])) flags |= JSON_KEYWORD_KEY;
+    if (argc > 2 && janet_truthy(argv[2])) flags |= JSON_NULL_TO_NIL;
+    err = decode_one(&p, &ret, flags);
     /* Check trailing values */
     if (!err) {
         skipwhite(&p);
@@ -562,11 +576,15 @@ static Janet json_encode(int32_t argc, Janet *argv) {
 static const JanetReg cfuns[] = {
     {"encode", json_encode,
         "(json/encode x &opt tab newline buf)\n\n"
-        "Encodes a janet value in JSON (utf-8)."
+        "Encodes a janet value in JSON (utf-8). tab and newline are optional byte sequence which are used "
+        "to format the output JSON. if buf is provided, the formated JSON is append to buf instead of a new buffer. "
+        "Returns the modifed buffer."
     },
     {"decode", json_decode,
-        "(json/decode json-source)\n\n"
-        "Returns a janet object after parsing JSON."
+        "(json/decode json-source &opt keywords nils)\n\n"
+        "Returns a janet object after parsing JSON. If keywords is truthy, string "
+        "keys will be converted to keywords. If nils is truthy, null will become nil instead "
+        "of the keyword :null."
     },
     {NULL, NULL, NULL}
 };
