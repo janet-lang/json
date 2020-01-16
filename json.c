@@ -108,6 +108,9 @@ static const char *decode_string(const char **p, Janet *out) {
                 case '\\':
                     b = '\\';
                     break;
+                case '/':
+                    b = '/';
+                    break;
                 case 'u':
                     {
                         /* Get codepoint and check for surrogate pair */
