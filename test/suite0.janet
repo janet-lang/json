@@ -1,4 +1,4 @@
-(import /build/json :as json)
+(import json :as json)
 
 (defn check-object [x]
   (def y (json/decode (json/encode x)))
