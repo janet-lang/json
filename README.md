@@ -1,3 +1,10 @@
+Note: Please use spork/json instead.
+
+```
+jpm install spork
+
+```
+
 # JSON
 
 A JSON module for janet. Encodes and Decodes JSON data and converts it
